@@ -1,0 +1,44 @@
+# Document Consolidation Toolkit Configuration
+# Copy this to config.yaml and customize for your environment
+
+# Base directory containing source folders
+input_directory: "~/Documents/LegalDocs"
+
+# Source folders to scan (relative to input_directory)
+source_folders:
+  - "Markdown Document 2"
+  - "Markdown Document 3"
+  - "Markdown Document 4"
+
+# File pattern for document discovery
+file_pattern: "*.md"
+
+# Logging configuration
+log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_dir: null  # null = output_dir/logs, or specify custom path
+
+# Tournament scoring weights (0-10 each)
+tournament:
+  completeness_weight: 10.0  # Document length and section count
+  recency_weight: 10.0       # Modification time
+  structure_weight: 10.0     # Markdown structure quality
+  citations_weight: 10.0     # Legal citations density
+  arguments_weight: 10.0     # Legal argument density
+
+# Content integration settings
+integration:
+  output_dir: "output"                      # Output directory
+  add_evolution_metadata: true              # Add document evolution info
+  preserve_source_attribution: true         # Preserve source folder info
+  integrate_citations: true                 # Integrate citation enhancements
+  skip_citation_enhancement: false          # Skip citation enhancement
+  similarity_threshold: 0.7                 # Threshold for similar sections (0-1)
+  min_added_lines: 3                        # Min lines for unique content
+
+# Document verification settings
+verification:
+  check_markdown_formatting: true           # Check markdown formatting
+  check_section_numbering: true             # Check section numbering
+  check_no_duplication: true                # Check for duplicates
+  check_document_navigability: true         # Check navigation structure
+  max_consecutive_blank_lines: 2            # Max consecutive blank lines

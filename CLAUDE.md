@@ -1,503 +1,595 @@
-# CLAUDE.md - Document Consolidation Toolkit
+# CLAUDE.md
 
-Project-specific guidance for Claude Code when working on this repository.
+AI assistant instructions for working with the Document Consolidation Toolkit.
 
 ## Project Overview
 
-**Purpose**: Production-ready document consolidation using tournament-based ranking to transform scattered document versions into comprehensive master documents.
+This is a **production-ready Python toolkit** for consolidating multiple versions of legal documents using tournament-based ranking. The project is in Phase 3 of a 7-phase refactoring process.
 
-**Origin**: Migrated from Google Drive scripts (Phase 4 completion) to production repository.
+**Current Status**: Phases 1-2 complete (configuration system + CLI). Phase 3 in progress (documentation).
 
-**Tech Stack**:
-- **Language**: Python 3.12+
-- **Package Manager**: uv (preferred) or pip
-- **Framework**: Click (CLI), FastAPI (API), Streamlit (Web UI)
-- **ORM**: SQLAlchemy with Alembic migrations
-- **Testing**: pytest with 70%+ coverage target
-- **Code Quality**: ruff (linter/formatter), mypy (type checker), bandit (security)
+**Technology Stack**:
+- Python 3.9+
+- Pydantic 2.0+ (settings and models)
+- Click 8.0+ (CLI framework)
+- PyYAML (configuration)
+- tqdm (progress bars)
+- pytest (testing)
 
-## Repository Structure
+## Critical Architecture Principles
 
-```
-document-consolidation-toolkit/
-├── src/document_consolidation/     # Main package
-│   ├── core/                       # Business logic (tournament, extractor, integrator, verifier)
-│   ├── models/                     # Pydantic models and dataclasses
-│   ├── storage/                    # Database layer (SQLAlchemy, repositories)
-│   ├── api/                        # FastAPI endpoints
-│   ├── ui/                         # Streamlit web interface
-│   ├── cli/                        # Click command-line interface
-│   └── config/                     # Configuration management
-├── tests/                          # Test suite
-│   ├── unit/                       # Unit tests (fast, isolated)
-│   ├── integration/                # Integration tests (database, API)
-│   └── performance/                # Performance benchmarks
-├── docs/                           # Documentation
-├── examples/                       # Example configurations and usage
-└── scripts/                        # Utility scripts
+### 1. Configuration Philosophy
 
-```
+**Pydantic-Based Settings System** (`src/document_consolidation/config/settings.py`):
+- All settings defined as Pydantic models with validation
+- Nested settings: `TournamentSettings`, `IntegrationSettings`, `VerificationSettings`
+- Configuration hierarchy: defaults → YAML file → environment variables → CLI args
+- Path expansion: Handles `~`, environment variables, absolute/relative paths
+- Type safety: Runtime validation, auto-conversion, range checking
 
-## Development Commands
-
-### Common Operations
-
-```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# Install dependencies (development mode)
-uv pip install -e ".[dev]"
-
-# Run all tests
-pytest
-
-# Run specific test types
-pytest tests/unit -m unit               # Unit tests only
-pytest tests/integration -m integration # Integration tests
-pytest tests/performance -m performance # Performance tests
-
-# Code quality checks
-ruff check .                            # Linting
-ruff format .                           # Formatting
-mypy src/                               # Type checking
-bandit -r src/                          # Security audit
-
-# Coverage report
-pytest --cov=document_consolidation --cov-report=html
-# View at: htmlcov/index.html
-
-# Run CLI
-doc-consolidate --help
-doc-consolidate tournament --input-dirs "path1" "path2"
-
-# Run API server
-uvicorn document_consolidation.api.main:app --reload
-
-# Run Web UI
-streamlit run src/document_consolidation/ui/app.py
-
-# Database migrations
-alembic revision --autogenerate -m "Add tables"
-alembic upgrade head
-alembic downgrade -1
-```
-
-### Git Workflow
-
-```bash
-# Feature development
-git checkout -b feature/citation-integration
-# ... make changes ...
-git add .
-git commit -m "feat: add citation extraction to integrator"
-git push -u origin feature/citation-integration
-
-# Create PR
-gh pr create --title "Add citation integration" --body "..."
-
-# After merge
-git checkout main
-git pull origin main
-git branch -d feature/citation-integration
-```
-
-## Architecture Patterns
-
-### 1. Configuration Management
-
-**Pattern**: Pydantic Settings with YAML support
-
+**Key Pattern**:
 ```python
-# src/document_consolidation/config/settings.py
-from pydantic_settings import BaseSettings
-from pathlib import Path
+# Load settings
+from document_consolidation.config import load_settings, Settings
+settings = load_settings(config_path)  # Validates and merges all sources
 
-class TournamentSettings(BaseSettings):
-    completeness_weight: int = 10
-    recency_weight: int = 10
-    structure_weight: int = 10
-    citations_weight: int = 10
-    arguments_weight: int = 10
-
-    class Config:
-        env_prefix = "TOURNAMENT_"  # Read from TOURNAMENT_* env vars
-
-# Usage
-settings = TournamentSettings()
+# Access nested settings
+settings.tournament.completeness_weight  # Type-safe access
+settings.integration.output_dir  # Path object, expanded/resolved
 ```
 
-**Why**: Eliminates hardcoded paths and magic numbers. Supports environment variables, YAML files, and validation.
+**Never bypass the settings system**. Always use `Settings` objects, never raw dicts or globals.
 
-### 2. Repository Pattern
+### 2. Data Model Philosophy
 
-**Pattern**: Database abstraction layer
+**All data structures are Pydantic models** (`src/document_consolidation/models/document.py`):
+- `DocumentMetadata`: File content and metadata
+- `ScoreBreakdown`: Tournament scoring details
+- `TournamentResult`: Champion identification
+- `UniqueImprovement`: Extracted content
+- `IntegrationResult`: Integration outcome
+- `VerificationResult`: Quality verification
 
+**Key Pattern**:
 ```python
-# src/document_consolidation/storage/repositories/tournament.py
-from abc import ABC, abstractmethod
+from document_consolidation.models import TournamentResult, ScoreBreakdown
 
-class TournamentRepository(ABC):
-    @abstractmethod
-    async def save_result(self, result: TournamentResult) -> int:
-        pass
+result = TournamentResult(
+    filename="brief.md",
+    champion_folder="v3",
+    champion_score=42.5,
+    # ... Pydantic validates all fields
+)
 
-    @abstractmethod
-    async def get_result(self, result_id: int) -> TournamentResult:
-        pass
-
-class SQLAlchemyTournamentRepository(TournamentRepository):
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def save_result(self, result: TournamentResult) -> int:
-        # Implementation using SQLAlchemy
-        ...
+# Type-safe access
+print(result.champion_score)  # float
+print(result.champion_path)   # Path object
 ```
 
-**Why**: Decouples business logic from database implementation. Enables testing with mock repositories.
+**Always use Pydantic models, never raw dicts**. This gives us validation, type safety, and serialization.
 
-### 3. Type Safety
+### 3. Logging Philosophy
 
-**Pattern**: Full type hints with mypy strict mode
+**Structured logging with context** (`src/document_consolidation/config/logging_config.py`):
+- Standard library `logging` module
+- File + console handlers
+- Structured extra data in log records
+- Log levels: DEBUG, INFO, WARNING, ERROR
 
+**Key Pattern**:
 ```python
-from typing import List, Dict, Optional
-from pathlib import Path
-
-def score_completeness(
-    content: str,
-    versions: Dict[str, DocumentVersion]
-) -> float:
-    """Score document completeness.
-
-    Args:
-        content: Document content to score
-        versions: All versions for comparison
-
-    Returns:
-        Completeness score (0.0-10.0)
-    """
-    ...
-```
-
-**Why**: Catches bugs at development time. Improves IDE autocomplete. Self-documenting code.
-
-### 4. Structured Logging
-
-**Pattern**: Replace `print()` with structured logging
-
-```python
-import logging
 from document_consolidation.config import get_logger
 
 logger = get_logger(__name__)
 
-# Bad (original scripts)
-print(f"✓ Loaded {len(results)} results")
-
-# Good (production)
+# Log with structured context
 logger.info(
-    "Tournament results loaded",
+    "Tournament complete",
     extra={
-        "results_count": len(results),
-        "duration_ms": elapsed_time,
+        "champion": champion_folder,
+        "score": score.total,
+        "versions": len(versions),
     }
 )
 ```
 
-**Why**: Enables filtering, log levels, structured data for analysis. Essential for production debugging.
+**Never use print statements**. Always use the logger with structured context data.
 
-### 5. Progress Indicators
+### 4. Repository Pattern
 
-**Pattern**: tqdm for long-running operations
+**Abstract storage layer** (`src/document_consolidation/storage/`):
+- `DocumentRepository`: Abstract base class (ABC)
+- `FilesystemRepository`: Concrete implementation
+- Future: Database, cloud storage, etc.
 
+**Key Pattern**:
 ```python
-from tqdm import tqdm
+from document_consolidation.storage import FilesystemRepository
 
-for filename, data in tqdm(results.items(), desc="Integrating documents"):
-    integrate_document(filename, data)
+repo = FilesystemRepository()
+documents = repo.find_documents(folder_path, "*.md")
+# Returns List[DocumentMetadata] with validation
 ```
 
-**Why**: User feedback for long operations. Better UX than silent processing.
+**Always use repository interface, never direct file I/O**. This allows swapping storage backends.
 
-## Testing Strategy
+### 5. Error Handling Philosophy
 
-### Unit Tests (Fast, Isolated)
+**Comprehensive error handling**:
+- Validate inputs early (Pydantic does this)
+- Catch specific exceptions, not bare `except:`
+- Log errors with context before raising
+- User-friendly CLI error messages (Click)
 
+**Key Pattern**:
 ```python
-# tests/unit/core/test_tournament.py
-from document_consolidation.core import DocumentTournament
-
-def test_score_completeness():
-    """Test completeness scoring algorithm."""
-    tournament = DocumentTournament(input_dirs=[])
-
-    # Arrange
-    content = "# Header\n\n## Section 1\n\nContent..."
-    versions = {
-        "v1": {"lines": 100, "content": "short"},
-        "v2": {"lines": 200, "content": "longer"},
-    }
-
-    # Act
-    score = tournament.score_completeness(content, versions)
-
-    # Assert
-    assert 0.0 <= score <= 10.0
-    assert score > 5.0  # Should be above average
+try:
+    result = some_operation()
+except ValueError as e:
+    logger.error("Operation failed", extra={"error": str(e)}, exc_info=True)
+    click.secho(f"Error: {e}", fg="red", err=True)
+    sys.exit(1)
 ```
 
-### Integration Tests (Database, API)
+## Project Structure Guide
 
+### Source Code Organization
+
+```
+src/document_consolidation/
+├── __init__.py              # Package exports
+├── __main__.py              # Entry point (python -m document_consolidation)
+├── cli.py                   # Click-based CLI (main commands)
+├── config/                  # Configuration subsystem
+│   ├── __init__.py          # Exports: load_settings, Settings, get_logger
+│   ├── settings.py          # Pydantic settings models
+│   └── logging_config.py    # Logging setup
+├── models/                  # Data models
+│   ├── __init__.py          # Model exports
+│   └── document.py          # All Pydantic models
+├── core/                    # Core algorithms (Phase 4-5)
+│   ├── __init__.py
+│   ├── tournament.py        # Tournament ranking (Phase 4.1-4.2)
+│   ├── extractor.py         # Content extraction (Phase 4.3)
+│   ├── integrator.py        # Content integration (Phase 4.4)
+│   └── verifier.py          # Quality verification (Phase 4.5)
+└── storage/                 # Data access layer
+    ├── __init__.py
+    ├── document_repository.py    # Abstract repository
+    └── filesystem_repository.py  # File system implementation
+```
+
+### Test Organization
+
+```
+tests/
+├── conftest.py              # Pytest fixtures (shared)
+├── unit/                    # Unit tests
+│   ├── test_models.py       # Pydantic model tests
+│   ├── test_tournament.py   # Tournament algorithm tests
+│   ├── test_extractor.py    # Extractor tests
+│   ├── test_integrator.py   # Integrator tests
+│   ├── test_verifier.py     # Verifier tests
+│   └── test_repository.py   # Repository tests
+└── integration/             # Integration tests
+    ├── test_configuration.py    # Config loading tests
+    └── test_full_workflow.py    # End-to-end tests
+```
+
+## Development Workflow
+
+### Making Changes
+
+1. **Read existing code first**: Understand patterns before adding new code
+2. **Follow existing patterns**: Match style, logging, error handling
+3. **Add tests**: Unit tests for logic, integration tests for workflows
+4. **Update docs**: Keep README.md and CLAUDE.md in sync
+5. **Run quality checks**: `black`, `ruff`, `mypy`, `pytest`
+
+### Testing Strategy
+
+**Unit Tests** (`tests/unit/`):
+- Test individual functions/methods in isolation
+- Use fixtures for setup (see `conftest.py`)
+- Mock external dependencies
+- Fast execution (<1 second per test)
+
+**Integration Tests** (`tests/integration/`):
+- Test component interactions
+- Use real file system (temp directories)
+- Test configuration loading
+- Test full workflows
+
+**Example Test Pattern**:
 ```python
-# tests/integration/api/test_tournament_endpoint.py
 import pytest
-from httpx import AsyncClient
+from document_consolidation.core.tournament import DocumentTournament
+from document_consolidation.models import DocumentMetadata
 
-@pytest.mark.integration
-async def test_run_tournament_endpoint(client: AsyncClient):
-    """Test tournament API endpoint end-to-end."""
-    response = await client.post(
-        "/api/v1/tournament",
-        json={
-            "input_dirs": ["test_data/folder1", "test_data/folder2"],
-        }
-    )
+def test_tournament_scoring(sample_documents):
+    """Test tournament scoring with sample documents."""
+    tournament = DocumentTournament(sample_documents, mock_repo)
 
-    assert response.status_code == 202  # Accepted
-    job_id = response.json()["job_id"]
+    score = tournament.score_completeness("v1")
 
-    # Poll for completion
-    result = await client.get(f"/api/v1/results/{job_id}")
-    assert result.status_code == 200
+    assert 0 <= score <= 10
+    assert isinstance(score, float)
 ```
 
-### Test Fixtures
+### Code Style Guidelines
 
+**Black Formatting** (line length 100):
+```bash
+black src/ tests/
+```
+
+**Ruff Linting**:
+```bash
+ruff check src/ tests/
+```
+
+**Type Hints**:
+- Required for all public functions/methods
+- Use `from typing import` for generics
+- Pydantic models provide runtime validation
+
+**Docstrings** (Google style):
 ```python
-# tests/conftest.py
-import pytest
-from pathlib import Path
+def score_completeness(self, version_key: str) -> float:
+    """Score based on document length and section count.
 
-@pytest.fixture
-def sample_documents(tmp_path: Path):
-    """Create sample markdown documents for testing."""
-    folder1 = tmp_path / "folder1"
-    folder1.mkdir()
+    Args:
+        version_key: Folder name key
 
-    (folder1 / "test.md").write_text(
-        "# Test Document\n\n## Section 1\n\nContent..."
-    )
+    Returns:
+        Completeness score (0-10)
 
-    yield {"folder1": folder1}
+    Raises:
+        ValueError: If version_key not found
+    """
 ```
 
-## Code Review Checklist
+## Common Pitfalls and Solutions
 
-Before submitting PR, ensure:
+### Pitfall 1: Bypassing Settings System
 
-- [ ] **Type hints**: All public functions have type annotations
-- [ ] **Logging**: Replace `print()` with `logger.info/debug/warning/error()`
-- [ ] **Configuration**: No hardcoded paths or magic numbers
-- [ ] **Tests**: 70%+ coverage, all new code has tests
-- [ ] **Documentation**: Docstrings for public APIs
-- [ ] **Error handling**: Proper exception handling with context
-- [ ] **Code quality**: `ruff check .` passes
-- [ ] **Type safety**: `mypy src/` passes
-- [ ] **Security**: `bandit -r src/` passes
-
-## Migration From Google Drive Scripts
-
-### Original Scripts Location
-
-```
-/Users/LROC/Library/CloudStorage/GoogleDrive-lroc@callcabrera.com/My Drive/
-├── document_tournament.py       → src/document_consolidation/core/tournament.py
-├── extract_unique_content.py    → src/document_consolidation/core/extractor.py
-├── integrate_improvements.py    → src/document_consolidation/core/integrator.py
-└── verify_and_document.py       → src/document_consolidation/core/verifier.py
-```
-
-### Key Refactoring Changes
-
-1. **Hardcoded Paths** → **Configuration**
-   ```python
-   # Before
-   GDRIVE_DIR = Path("/Users/LROC/Library/CloudStorage/...")
-
-   # After
-   from document_consolidation.config import settings
-   input_dir = settings.input_directory
-   ```
-
-2. **Print Statements** → **Structured Logging**
-   ```python
-   # Before
-   print(f"✓ Loaded {len(results)} results")
-
-   # After
-   logger.info("Results loaded", extra={"count": len(results)})
-   ```
-
-3. **Main Functions** → **Classes with Dependency Injection**
-   ```python
-   # Before
-   def main():
-       results = run_tournament()
-       save_results(results)
-
-   # After
-   class TournamentRunner:
-       def __init__(self, config: TournamentConfig, repository: TournamentRepository):
-           self.config = config
-           self.repository = repository
-
-       async def run(self) -> TournamentResult:
-           results = await self._run_tournament()
-           await self.repository.save_result(results)
-           return results
-   ```
-
-4. **No Tests** → **Comprehensive Test Suite**
-   - Unit tests for all scoring algorithms
-   - Integration tests for database operations
-   - Performance tests for large document sets
-
-## Known Issues and Workarounds
-
-### Issue: Citation Integration Not Implemented
-
-**Status**: Phase 2 feature (currently skipped in original `integrate_improvements.py` lines 149-152)
-
-**Location**: `src/document_consolidation/core/integrator.py`
-
-**Workaround**: Citation enhancements are identified but not integrated. They're logged for manual review.
-
-**Fix Plan**: Implement citation merging logic in Phase 2.
-
+**Wrong**:
 ```python
-# Current code (skips citations)
-if improvement['type'] == 'citation_enhancement':
-    logger.info("Skipping citation enhancement", extra={"source": improvement['source_folder']})
-    continue
+# Hardcoded paths
+output_dir = Path("./output")
 
-# Planned fix
-if improvement['type'] == 'citation_enhancement':
-    self._integrate_citations(content, improvement)
+# Global variables
+COMPLETENESS_WEIGHT = 10.0
 ```
 
-### Issue: Potential IndexError in Metadata Removal
+**Right**:
+```python
+from document_consolidation.config import load_settings
 
-**Status**: Edge case in original `verify_and_document.py` lines 184-196
-
-**Location**: `src/document_consolidation/core/integrator.py:add_evolution_metadata()`
-
-**Workaround**: Add bounds checking before list slicing.
-
-**Fix Plan**: Implement safe metadata removal in Phase 2.
-
-## Performance Considerations
-
-### Large Document Sets (100+ documents)
-
-- **Use streaming**: Process documents one at a time instead of loading all into memory
-- **Parallel processing**: Use `asyncio` or `multiprocessing` for tournament scoring
-- **Database indexing**: Add indexes on `document_name`, `tournament_id` columns
-
-### Memory Usage
-
-- **Original scripts**: ~500MB for 55 documents
-- **Target**: <200MB through streaming processing
-
-## Production Deployment
-
-### Environment Variables
-
-```bash
-# Required
-export DATABASE_URL="postgresql://user:pass@localhost/consolidation"
-export LOG_LEVEL="INFO"
-
-# Optional
-export TOURNAMENT_COMPLETENESS_WEIGHT=10
-export INTEGRATION_OUTPUT_DIR="/data/comprehensive"
+settings = load_settings(config_path)
+output_dir = settings.integration.output_dir
+weight = settings.tournament.completeness_weight
 ```
 
-### Docker Deployment
+### Pitfall 2: Using Raw Dicts Instead of Models
 
-```bash
-# Build image
-docker build -t document-consolidation-toolkit .
-
-# Run API server
-docker run -p 8000:8000 \
-  -e DATABASE_URL="postgresql://..." \
-  document-consolidation-toolkit \
-  uvicorn document_consolidation.api.main:app --host 0.0.0.0
-
-# Run CLI
-docker run -v /data:/data \
-  document-consolidation-toolkit \
-  doc-consolidate tournament --input-dirs /data/folder1 /data/folder2
+**Wrong**:
+```python
+result = {
+    "filename": "brief.md",
+    "champion": "v3",
+    "score": 42.5,
+}
 ```
 
-## Troubleshooting
+**Right**:
+```python
+from document_consolidation.models import TournamentResult
 
-### Issue: Import Errors
-
-```bash
-# Symptom
-ImportError: No module named 'document_consolidation'
-
-# Solution
-# Ensure installed in editable mode
-uv pip install -e ".[dev]"
-
-# Or reinstall
-uv pip uninstall document-consolidation-toolkit
-uv pip install -e ".[dev]"
+result = TournamentResult(
+    filename="brief.md",
+    champion_folder="v3",
+    champion_score=42.5,
+    # Pydantic validates types and required fields
+)
 ```
 
-### Issue: Test Failures
+### Pitfall 3: Direct File I/O
 
-```bash
-# Symptom
-pytest: ModuleNotFoundError: No module named 'document_consolidation'
-
-# Solution
-# Tests must be run from repository root
-cd ~/Documents/GitHub/document-consolidation-toolkit/
-pytest
+**Wrong**:
+```python
+with open("document.md", "r") as f:
+    content = f.read()
 ```
 
-### Issue: Type Errors
+**Right**:
+```python
+from document_consolidation.storage import FilesystemRepository
+
+repo = FilesystemRepository()
+documents = repo.find_documents(folder_path, "*.md")
+# Returns validated DocumentMetadata objects
+```
+
+### Pitfall 4: Using print() Instead of Logging
+
+**Wrong**:
+```python
+print(f"Processing {filename}")
+print(f"Score: {score}")
+```
+
+**Right**:
+```python
+from document_consolidation.config import get_logger
+
+logger = get_logger(__name__)
+logger.info(
+    "Processing document",
+    extra={"filename": filename, "score": score}
+)
+```
+
+### Pitfall 5: Bare Exception Handling
+
+**Wrong**:
+```python
+try:
+    result = process()
+except:
+    pass
+```
+
+**Right**:
+```python
+try:
+    result = process()
+except ValueError as e:
+    logger.error("Processing failed", extra={"error": str(e)}, exc_info=True)
+    raise
+except FileNotFoundError as e:
+    logger.error("File not found", extra={"path": str(path)})
+    raise
+```
+
+## Debugging Tips
+
+### Enable Debug Logging
 
 ```bash
-# Symptom
-mypy: error: Argument 1 has incompatible type "str"; expected "Path"
+# Via CLI
+consolidate full --verbose
 
-# Solution
-# Use Path objects consistently
+# Via environment variable
+export LOG_LEVEL=DEBUG
+consolidate full
+
+# Via config file
+log_level: DEBUG
+```
+
+### Check Log Files
+
+```bash
+# Default location: output/logs/
+tail -f output/logs/document_consolidation.log
+
+# View structured log data
+grep "Tournament complete" output/logs/document_consolidation.log
+```
+
+### Common Debug Scenarios
+
+**Configuration not loading**:
+```python
+# Verify config file is valid YAML
+import yaml
+with open("config.yaml") as f:
+    print(yaml.safe_load(f))
+
+# Check settings object
+from document_consolidation.config import load_settings
+settings = load_settings(Path("config.yaml"))
+print(settings.model_dump())
+```
+
+**Tournament scoring issues**:
+```python
+# Enable debug logging for specific module
+import logging
+logging.getLogger("document_consolidation.core.tournament").setLevel(logging.DEBUG)
+
+# Check score breakdown
+tournament = DocumentTournament(versions, repo)
+breakdown = tournament.evaluate_version("v1")
+print(f"Completeness: {breakdown.completeness}")
+print(f"Recency: {breakdown.recency}")
+print(f"Total: {breakdown.total}")
+```
+
+**Path resolution issues**:
+```python
+# Check path expansion
 from pathlib import Path
-input_dir = Path(input_dir_str)
+import os
+
+path = Path("~/Documents/Cases").expanduser().resolve()
+print(f"Expanded: {path}")
+print(f"Exists: {path.exists()}")
 ```
 
-## Resources
+## File Navigation Quick Reference
 
-- **Original Phase 4 Complete**: `/Users/LROC/Library/CloudStorage/GoogleDrive-lroc@callcabrera.com/My Drive/PHASE_4_COMPLETE.md`
-- **Tournament Results**: `/Users/LROC/Library/CloudStorage/GoogleDrive-lroc@callcabrera.com/My Drive/tournament_results.json`
-- **Code Review Report**: See Phase 4.2 code review (Grade D → Target: B+)
+### Configuration System
+- `src/document_consolidation/config/settings.py:19-82` - TournamentSettings
+- `src/document_consolidation/config/settings.py:83-130` - IntegrationSettings
+- `src/document_consolidation/config/settings.py:160-238` - Main Settings class
+- `src/document_consolidation/config/settings.py:240-275` - load_settings function
+- `src/document_consolidation/config/logging_config.py:18-107` - setup_logging
 
-## Next Steps
+### CLI Implementation
+- `src/document_consolidation/cli.py:26-104` - Main CLI group
+- `src/document_consolidation/cli.py:107-204` - full command
+- `src/document_consolidation/cli.py:206-242` - tournament command
+- `src/document_consolidation/cli.py:244-277` - extract command
+- `src/document_consolidation/cli.py:279-314` - integrate command
+- `src/document_consolidation/cli.py:316-351` - verify command
 
-See `docs/roadmap.md` for planned features:
-- Phase 2: Core refactoring with configuration and citation integration
-- Phase 3: Test infrastructure (70%+ coverage)
-- Phase 4: CLI implementation
-- Phase 5: Database integration
-- Phase 6: FastAPI backend
-- Phase 7: Streamlit web UI
-- Phase 8: CI/CD pipeline
-- Phase 9: Documentation
-- Phase 10: Migration and verification
+### Data Models
+- `src/document_consolidation/models/document.py:13-35` - DocumentMetadata
+- `src/document_consolidation/models/document.py:37-56` - ScoreBreakdown
+- `src/document_consolidation/models/document.py:58-82` - TournamentResult
+- `src/document_consolidation/models/document.py:84-92` - SectionData
+- `src/document_consolidation/models/document.py:94-112` - UniqueImprovement
+- `src/document_consolidation/models/document.py:114-147` - IntegrationResult
+- `src/document_consolidation/models/document.py:149-187` - VerificationResult
+
+### Core Algorithms
+- `src/document_consolidation/core/tournament.py:24-312` - DocumentTournament class
+- `src/document_consolidation/core/tournament.py:42-77` - score_completeness
+- `src/document_consolidation/core/tournament.py:79-106` - score_recency
+- `src/document_consolidation/core/tournament.py:107-142` - score_structure
+- `src/document_consolidation/core/tournament.py:143-186` - score_citations
+- `src/document_consolidation/core/tournament.py:187-246` - score_arguments
+- `src/document_consolidation/core/tournament.py:314-486` - TournamentEngine class
+
+### Storage Layer
+- `src/document_consolidation/storage/document_repository.py:14-69` - DocumentRepository ABC
+- `src/document_consolidation/storage/filesystem_repository.py:16-125` - FilesystemRepository
+
+## Phase-Specific Guidance
+
+### Phase 1 (COMPLETE): Configuration System
+- Pydantic settings with validation ✓
+- YAML configuration loading ✓
+- Environment variable overrides ✓
+- Logging configuration ✓
+
+### Phase 2 (COMPLETE): CLI Implementation
+- Click-based command structure ✓
+- Global options and flags ✓
+- Progress bars with tqdm ✓
+- Error handling and exit codes ✓
+
+### Phase 3 (CURRENT): Documentation
+- **Focus**: README.md, CLAUDE.md, pyproject.toml
+- **Goal**: Production-ready documentation
+- **Status**: In progress
+
+### Phase 4 (UPCOMING): Core Algorithms
+- Tournament ranking (existing code needs refactoring)
+- Content extraction
+- Content integration
+- Quality verification
+- **Key**: Connect to settings system, add comprehensive logging
+
+### Phase 5 (UPCOMING): Integration Layer
+- Wire up CLI commands to core algorithms
+- Remove placeholder code in cli.py
+- Add progress reporting
+- Integration tests
+
+### Phase 6 (UPCOMING): Testing Infrastructure
+- Expand unit test coverage
+- Add integration tests
+- Add fixtures for test data
+- Setup CI/CD
+
+### Phase 7 (UPCOMING): Production Deployment
+- Package for PyPI
+- Setup GitHub Actions
+- Add pre-commit hooks
+- Performance optimization
+
+## Best Practices Checklist
+
+When adding new code, ensure:
+
+- [ ] Uses Pydantic models for all data structures
+- [ ] Loads settings via `load_settings()` or dependency injection
+- [ ] Uses `get_logger(__name__)` for logging
+- [ ] Includes structured context in log records
+- [ ] Has type hints on all public functions/methods
+- [ ] Includes Google-style docstrings
+- [ ] Has unit tests with >80% coverage
+- [ ] Follows Black formatting (line length 100)
+- [ ] Passes Ruff linting (E, F, I rules)
+- [ ] Passes mypy type checking (strict mode)
+- [ ] Uses repository pattern for file access
+- [ ] Handles errors with specific exceptions
+- [ ] Has CLI integration (if user-facing)
+- [ ] Updates documentation (README.md, CLAUDE.md)
+
+## Key Design Decisions
+
+### Why Pydantic 2.0?
+- Runtime validation catches configuration errors early
+- Type safety without runtime overhead (Rust core)
+- Automatic JSON/dict serialization
+- Model composition (nested settings)
+
+### Why Click for CLI?
+- Industry standard for Python CLIs
+- Automatic help text generation
+- Nested command groups
+- Argument validation and type conversion
+- Context passing between commands
+
+### Why Repository Pattern?
+- Abstracts storage implementation
+- Enables testing with mock repositories
+- Future-proof for database/cloud storage
+- Separates business logic from data access
+
+### Why Structured Logging?
+- Machine-parseable log records
+- Rich context for debugging
+- Integration with log aggregation tools
+- Better than string concatenation
+
+## Quick Command Reference
+
+```bash
+# Development setup
+pip install -e ".[dev]"
+
+# Run full pipeline
+consolidate full --config config.yaml --verbose
+
+# Run tests
+pytest                              # All tests
+pytest tests/unit/                  # Unit tests only
+pytest --cov=document_consolidation # With coverage
+
+# Code quality
+black src/ tests/                   # Format
+ruff check src/ tests/              # Lint
+mypy src/                           # Type check
+
+# Debugging
+consolidate full --verbose          # Debug logging
+export LOG_LEVEL=DEBUG              # Environment variable
+tail -f output/logs/*.log          # Watch logs
+```
+
+## When You Get Stuck
+
+1. **Check existing patterns**: Look at how other modules do it
+2. **Read the tests**: Tests show usage examples
+3. **Enable debug logging**: `--verbose` flag or `LOG_LEVEL=DEBUG`
+4. **Check log files**: `output/logs/document_consolidation.log`
+5. **Validate configuration**: Print `settings.model_dump()`
+6. **Use type checking**: `mypy` catches many issues
+7. **Read the models**: Pydantic validation errors are very specific
+
+## Remember
+
+This is a **production-ready legal tool**. Code quality, error handling, logging, and documentation are not optional. Every line of code should be:
+
+- Type-safe (Pydantic + mypy)
+- Validated (Pydantic models)
+- Logged (structured context)
+- Tested (unit + integration)
+- Documented (docstrings + README)
+
+The extra effort pays off in maintainability, debuggability, and user trust.
