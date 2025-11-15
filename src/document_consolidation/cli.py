@@ -21,6 +21,11 @@ from document_consolidation.config import (
     load_settings,
     setup_logging,
 )
+from document_consolidation.core.tournament import TournamentEngine
+from document_consolidation.core.extractor import UniqueContentExtractor
+from document_consolidation.core.integrator import DocumentIntegrator
+from document_consolidation.core.verifier import DocumentVerifier
+from document_consolidation.storage.filesystem_repository import FileSystemRepository
 
 
 @click.group()
@@ -122,69 +127,60 @@ def full(settings: Settings) -> None:
     click.secho(f"Output Directory: {settings.integration.output_dir}\n", fg="cyan")
 
     try:
+        # Initialize repository
+        repository = FileSystemRepository()
+
         # Phase 1: Tournament
         click.secho("Phase 1: Tournament-based ranking", fg="green", bold=True)
         logger.info("Starting tournament phase")
 
-        # TODO: Import and run tournament
-        # from document_consolidation.core.tournament import DocumentTournament
-        # tournament = DocumentTournament(settings)
-        # champions = tournament.run()
+        engine = TournamentEngine(repository)
+        tournament_results = engine.execute()
 
-        click.echo("  [PLACEHOLDER] Running tournament...")
-        with tqdm(total=100, desc="  Analyzing documents") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("  ✓ Tournament complete\n", fg="green")
+        click.secho(f"  ✓ Identified {len(tournament_results)} champions\n", fg="green")
 
         # Phase 2: Extract unique content
         click.secho("Phase 2: Extract unique content", fg="green", bold=True)
         logger.info("Starting extraction phase")
 
-        # TODO: Import and run extractor
-        # from document_consolidation.core.extractor import ContentExtractor
-        # extractor = ContentExtractor(settings)
-        # unique_content = extractor.extract(champions)
+        extractor = UniqueContentExtractor(repository)
+        extraction_results = extractor.run_extraction(tournament_results)
 
-        click.echo("  [PLACEHOLDER] Extracting unique content...")
-        with tqdm(total=100, desc="  Processing non-champions") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("  ✓ Extraction complete\n", fg="green")
+        improvements_count = sum(
+            r["improvement_count"] for r in extraction_results.values() if r
+        )
+        click.secho(
+            f"  ✓ Found {improvements_count} improvements across {len(extraction_results)} documents\n",
+            fg="green",
+        )
 
         # Phase 3: Integrate improvements
         click.secho("Phase 3: Integrate improvements", fg="green", bold=True)
         logger.info("Starting integration phase")
 
-        # TODO: Import and run integrator
-        # from document_consolidation.core.integrator import ContentIntegrator
-        # integrator = ContentIntegrator(settings)
-        # integrated_docs = integrator.integrate(champions, unique_content)
+        integrator = DocumentIntegrator(repository)
+        integration_results = integrator.run_integration(extraction_results)
 
-        click.echo("  [PLACEHOLDER] Integrating improvements...")
-        with tqdm(total=100, desc="  Merging content") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("  ✓ Integration complete\n", fg="green")
+        total_added_lines = sum(r.added_lines for r in integration_results)
+        click.secho(
+            f"  ✓ Integrated {len(integration_results)} documents (+{total_added_lines:,} lines)\n",
+            fg="green",
+        )
 
         # Phase 4: Verify quality
         click.secho("Phase 4: Verify document quality", fg="green", bold=True)
         logger.info("Starting verification phase")
 
-        # TODO: Import and run verifier
-        # from document_consolidation.core.verifier import DocumentVerifier
-        # verifier = DocumentVerifier(settings)
-        # verification_results = verifier.verify(integrated_docs)
+        verifier = DocumentVerifier(repository)
+        verification_results = verifier.run_verification(
+            integration_results, tournament_results
+        )
 
-        click.echo("  [PLACEHOLDER] Verifying quality...")
-        with tqdm(total=100, desc="  Running checks") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("  ✓ Verification complete\n", fg="green")
+        total_issues = sum(len(r.issues) for r in verification_results)
+        click.secho(
+            f"  ✓ Verified {len(verification_results)} documents ({total_issues} issues found)\n",
+            fg="green" if total_issues == 0 else "yellow",
+        )
 
         # Summary
         click.secho("=" * 50, fg="cyan")
@@ -220,20 +216,15 @@ def tournament(settings: Settings) -> None:
     click.secho("\n=== Tournament-based Document Ranking ===\n", fg="cyan", bold=True)
 
     try:
-        # TODO: Import and run tournament
-        # from document_consolidation.core.tournament import DocumentTournament
-        # tournament_runner = DocumentTournament(settings)
-        # champions = tournament_runner.run()
+        repository = FileSystemRepository()
+        engine = TournamentEngine(repository)
 
-        click.echo("[PLACEHOLDER] Running tournament...")
         logger.info("Starting tournament ranking")
+        tournament_results = engine.execute()
 
-        with tqdm(total=100, desc="Analyzing documents") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("\n✓ Tournament complete!", fg="green", bold=True)
-        logger.info("Tournament ranking completed successfully")
+        click.secho(f"\n✓ Identified {len(tournament_results)} champions!", fg="green", bold=True)
+        click.secho(f"Output directory: {settings.integration.output_dir}", fg="cyan")
+        logger.info(f"Tournament ranking completed - {len(tournament_results)} champions identified")
 
     except Exception as e:
         click.secho(f"\nError during tournament: {e}", fg="red", err=True)
@@ -255,19 +246,26 @@ def extract(settings: Settings) -> None:
     click.secho("\n=== Extract Unique Content ===\n", fg="cyan", bold=True)
 
     try:
-        # TODO: Import and run extractor
-        # from document_consolidation.core.extractor import ContentExtractor
-        # extractor_runner = ContentExtractor(settings)
-        # unique_content = extractor_runner.extract()
+        repository = FileSystemRepository()
 
-        click.echo("[PLACEHOLDER] Extracting unique content...")
+        # Run tournament first
+        logger.info("Running tournament phase (required for extraction)")
+        engine = TournamentEngine(repository)
+        tournament_results = engine.execute()
+
+        # Now run extraction
         logger.info("Starting content extraction")
+        extractor = UniqueContentExtractor(repository)
+        extraction_results = extractor.run_extraction(tournament_results)
 
-        with tqdm(total=100, desc="Processing non-champions") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("\n✓ Extraction complete!", fg="green", bold=True)
+        improvements_count = sum(
+            r["improvement_count"] for r in extraction_results.values() if r
+        )
+        click.secho(
+            f"\n✓ Found {improvements_count} improvements across {len(extraction_results)} documents!",
+            fg="green",
+            bold=True,
+        )
         logger.info("Content extraction completed successfully")
 
     except Exception as e:
@@ -289,19 +287,28 @@ def integrate(settings: Settings) -> None:
     click.secho("\n=== Integrate Improvements ===\n", fg="cyan", bold=True)
 
     try:
-        # TODO: Import and run integrator
-        # from document_consolidation.core.integrator import ContentIntegrator
-        # integrator_runner = ContentIntegrator(settings)
-        # integrated_docs = integrator_runner.integrate()
+        repository = FileSystemRepository()
 
-        click.echo("[PLACEHOLDER] Integrating improvements...")
+        # Run tournament and extraction first
+        logger.info("Running tournament phase (required for integration)")
+        engine = TournamentEngine(repository)
+        tournament_results = engine.execute()
+
+        logger.info("Running extraction phase (required for integration)")
+        extractor = UniqueContentExtractor(repository)
+        extraction_results = extractor.run_extraction(tournament_results)
+
+        # Now run integration
         logger.info("Starting content integration")
+        integrator = DocumentIntegrator(repository)
+        integration_results = integrator.run_integration(extraction_results)
 
-        with tqdm(total=100, desc="Merging content") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("\n✓ Integration complete!", fg="green", bold=True)
+        total_added_lines = sum(r.added_lines for r in integration_results)
+        click.secho(
+            f"\n✓ Integrated {len(integration_results)} documents (+{total_added_lines:,} lines)!",
+            fg="green",
+            bold=True,
+        )
         click.secho(
             f"Output directory: {settings.integration.output_dir}", fg="cyan"
         )
@@ -329,19 +336,34 @@ def verify(settings: Settings) -> None:
     click.secho("\n=== Verify Document Quality ===\n", fg="cyan", bold=True)
 
     try:
-        # TODO: Import and run verifier
-        # from document_consolidation.core.verifier import DocumentVerifier
-        # verifier_runner = DocumentVerifier(settings)
-        # results = verifier_runner.verify()
+        repository = FileSystemRepository()
 
-        click.echo("[PLACEHOLDER] Verifying quality...")
+        # Run all previous phases
+        logger.info("Running tournament phase (required for verification)")
+        engine = TournamentEngine(repository)
+        tournament_results = engine.execute()
+
+        logger.info("Running extraction phase (required for verification)")
+        extractor = UniqueContentExtractor(repository)
+        extraction_results = extractor.run_extraction(tournament_results)
+
+        logger.info("Running integration phase (required for verification)")
+        integrator = DocumentIntegrator(repository)
+        integration_results = integrator.run_integration(extraction_results)
+
+        # Now run verification
         logger.info("Starting document verification")
+        verifier = DocumentVerifier(repository)
+        verification_results = verifier.run_verification(
+            integration_results, tournament_results
+        )
 
-        with tqdm(total=100, desc="Running checks") as pbar:
-            for _ in range(10):
-                pbar.update(10)
-
-        click.secho("\n✓ Verification complete!", fg="green", bold=True)
+        total_issues = sum(len(r.issues) for r in verification_results)
+        click.secho(
+            f"\n✓ Verified {len(verification_results)} documents ({total_issues} issues found)!",
+            fg="green" if total_issues == 0 else "yellow",
+            bold=True,
+        )
         logger.info("Document verification completed successfully")
 
     except Exception as e:
